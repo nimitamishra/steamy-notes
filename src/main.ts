@@ -3,13 +3,12 @@ import { capture } from "./capture";
 import { config } from "./config";
 import { cameraToScreen, coverFit, type CoverFit } from "./coords";
 import { BlowDetector, type AudioFeatures } from "./input/blowDetector";
-import { analyzeHand, PinchTracker, type BrushSample, type Landmark } from "./input/gestures";
+import { analyzeHand, PinchTracker, type BrushSample, type HandFrame } from "./input/gestures";
 import { FaceTracker, HandTracker } from "./input/vision";
 import { attachHuffKey, attachPointer } from "./input/pointerFallback";
 import { OneEuro } from "./input/smoothing";
 import { attachVideo, requestMedia, setTracksEnabled, type MediaGrant } from "./media/camera";
 import { Mic } from "./media/mic";
-import { Drips } from "./render/drips";
 import { Renderer } from "./render/renderer";
 import { loadSettings, nextHint, saveSettings, type HintStep } from "./state";
 import { StrokeBook, type Stamp, type StrokeKind } from "./strokes";
@@ -38,17 +37,14 @@ function main(): void {
     return;
   }
 
-  const settings = loadSettings();
   const hint = new Hint($("hint"));
   const toast = new Toast($("toast"));
   const cursor = new Cursor($("cursor"), $("app"));
   const strokes = new StrokeBook();
-  const drips = new Drips();
   const detector = new BlowDetector();
   const pinch = new PinchTracker();
   const fx = new OneEuro(config.hand.minCutoff, config.hand.beta);
   const fy = new OneEuro(config.hand.minCutoff, config.hand.beta);
-  const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
   const touchFirst = matchMedia("(pointer: coarse)").matches;
   const debugEl = new URLSearchParams(location.search).has("debug") ? $("debug") : null;
   if (debugEl) debugEl.hidden = false;
@@ -76,7 +72,7 @@ function main(): void {
   let lastDetect = 0;
   let needsResize = true;
   let lastFeatures: AudioFeatures | null = null;
-  let lastPinchRatio = NaN;
+  let lastPinch: { pinchRatio: number; pinchRatio2D: number; closed: boolean } | null = null;
   // Face: smoothed pucker + where the mouth is, so breath lands in front of it.
   let faceSeenAt = -Infinity;
   let lastFaceDetect = 0;
@@ -88,15 +84,17 @@ function main(): void {
     if (s.length) queued.push(...s);
   };
   const strokeKind = (): StrokeKind => (eraser ? "fog" : "wipe");
-  const syncToolbar = () => toolbar.sync(settings, eraser, strokes.canUndo);
+  const settings = loadSettings();
+  const brushRadius = () => config.brush.sizes[settings.brushSize];
+  const syncToolbar = () => toolbar.sync(eraser, strokes.canUndo, settings.brushSize);
 
   const fit = (): CoverFit =>
     video.videoWidth
       ? coverFit(video.videoWidth, video.videoHeight, canvas.width, canvas.height)
       : coverFit(1, 1, 1, 1);
 
-  const endStroke = (now: number, discardTail: boolean) => {
-    queue(strokes.end(now, discardTail));
+  const endStroke = (discardTail: boolean) => {
+    queue(strokes.end(discardTail));
     if (wroteThisStroke) penUpAfterWriting = true;
     wroteThisStroke = false;
     strokeSource = null;
@@ -104,15 +102,18 @@ function main(): void {
   };
 
   // ---- hand input ----
-  const setPen = (down: boolean, now: number) => {
+  // After the start-pinch, wait for the fingers to open before drawing, so the pinch itself leaves no mark.
+  let waitingForOpen = false;
+  const setPen = (down: boolean) => {
     penDown = down;
-    if (!down && strokeSource === "hand") endStroke(now, true);
+    waitingForOpen = down;
+    if (!down && strokeSource === "hand") endStroke(true);
   };
 
-  const handleHand = (lm: Landmark[] | null, now: number) => {
-    if (!lm) {
+  const handleHand = (hand: HandFrame | null, now: number) => {
+    if (!hand) {
       if (now - handSeenAt > config.hand.lostMs) {
-        if (strokeSource === "hand") endStroke(now, false);
+        if (strokeSource === "hand") endStroke(false);
         pinch.reset();
         fx.reset();
         fy.reset();
@@ -121,31 +122,37 @@ function main(): void {
       return;
     }
     handSeenAt = now;
-    const shape = analyzeHand(lm, video.videoWidth / video.videoHeight, fit());
-    lastPinchRatio = shape.pinchRatio;
-    const p = pinch.update(shape.pinchRatio);
+    const shape = analyzeHand(hand, fit(), video.videoWidth / video.videoHeight);
+    lastPinch = shape;
+    const p = pinch.update(shape, Math.min(100, now - lastHandT));
     // Pinch once to start writing, pinch again to stop.
-    if (p.started) setPen(!penDown, now);
+    if (p.started) setPen(!penDown);
 
     const dt = Math.max(0.001, (now - lastHandT) / 1000);
     lastHandT = now;
     const tip = shape.indexTip;
-    const brush: BrushSample = { x: fx.filter(tip.x, dt), y: fy.filter(tip.y, dt), r: config.brush.fingerRadius };
+    const brush: BrushSample = { x: fx.filter(tip.x, dt), y: fy.filter(tip.y, dt), r: brushRadius() };
 
     if (strokeSource === "pointer") return;
     if (penDown) cursor.update(brush.x, brush.y, eraser);
     else cursor.hide();
-    if (penDown) {
-      if (strokeSource !== "hand") {
-        strokes.begin(strokeKind(), config.brush.commitDelayMs);
-        strokeSource = "hand";
-      }
-      queue(strokes.add(brush, now));
+    if (!penDown) return;
+
+    const closing = shape.pinchRatio < config.hand.approachRatio;
+    if (waitingForOpen) {
+      if (closing) return;
+      waitingForOpen = false;
     }
+    if (strokeSource !== "hand") {
+      strokes.begin(strokeKind(), config.brush.commitDelayMs);
+      strokeSource = "hand";
+    }
+    // Thumb closing in might be a stop-pinch: hold these points; they're dropped if it completes.
+    queue(strokes.add(brush, now, closing));
   };
 
   // ---- pointer input (mouse / touch) ----
-  const pointerBrush = (x: number, y: number): BrushSample => ({ x, y, r: config.brush.pointerRadius });
+  const pointerBrush = (x: number, y: number): BrushSample => ({ x, y, r: brushRadius() });
   attachPointer(canvas, {
     down(x, y) {
       if (strokeSource === "hand") return;
@@ -159,7 +166,7 @@ function main(): void {
     },
     up() {
       if (strokeSource !== "pointer") return;
-      endStroke(performance.now(), false);
+      endStroke(false);
     },
   });
 
@@ -177,7 +184,6 @@ function main(): void {
 
   // ---- toolbar ----
   const onAction = async (a: Action) => {
-    const now = performance.now();
     switch (a) {
       case "capture": {
         const flash = $("flash");
@@ -193,7 +199,7 @@ function main(): void {
         break;
       }
       case "undo":
-        if (strokeSource) endStroke(now, false);
+        if (strokeSource) endStroke(false);
         queue(strokes.undo());
         break;
       case "eraser":
@@ -205,21 +211,24 @@ function main(): void {
         humidity = Math.max(humidity, 0.9);
         break;
       case "restart":
-        if (strokeSource) endStroke(now, false);
+        if (strokeSource) endStroke(false);
         renderer.fill(0);
         humidity = 0;
         penDown = false;
         strokes.clear();
-        drips.clear();
-        break;
-      case "style":
-        settings.fogStyle = settings.fogStyle === "droplets" ? "plain" : "droplets";
-        saveSettings(settings);
         break;
     }
     syncToolbar();
   };
-  const toolbar = new Toolbar($("toolbar"), (a) => void onAction(a));
+  const toolbar = new Toolbar(
+    $("toolbar"),
+    (a) => void onAction(a),
+    (size) => {
+      settings.brushSize = size;
+      saveSettings(settings);
+      syncToolbar();
+    },
+  );
 
   // ---- hints ----
   const hintText = (): string | null => {
@@ -297,8 +306,8 @@ function main(): void {
 
     if (handTracker && t - lastDetect >= config.hand.detectIntervalMs) {
       lastDetect = t;
-      const lm = handTracker.detect(video, t);
-      if (lm !== undefined) handleHand(lm, t);
+      const hand = handTracker.detect(video, t);
+      if (hand !== undefined) handleHand(hand, t);
       if (handTracker.tooSlow) {
         handTracker.close();
         handTracker = null;
@@ -307,17 +316,14 @@ function main(): void {
       }
     }
 
-    const dripStamps = drips.update(dt, humidity, settings.fogStyle === "droplets" && !reducedMotion);
     renderer.frame({
       dt,
       time: t / 1000,
       blow: blow * config.fog.blowRate,
       blowCenter: faceVisible ? mouth : DEFAULT_BLOW_CENTER,
       humidity,
-      stamps: queued.concat(dripStamps),
-      drips: drips.heads(),
+      stamps: queued,
       fit: fit(),
-      droplets: settings.fogStyle === "droplets",
     });
     queued = [];
     updateHints();
@@ -336,8 +342,12 @@ function main(): void {
       `face      ${faceTracker ? (performance.now() - faceSeenAt < config.face.lostMs ? "seen" : "—") : "off"}  pucker ${pucker.toFixed(2)} (> ${c.minPucker}; no-mic > ${c.silentPucker})`,
       `blowing   ${detector.blowing ? "YES" : "no"}  strength ${blow.toFixed(2)}  [${detector.reason}]`,
       `humidity  ${humidity.toFixed(2)}`,
-      `hand      ${handTracker ? (performance.now() - handSeenAt < 300 ? "seen" : "—") : "off"}  pinch ${lastPinchRatio.toFixed(2)} (on < ${config.hand.pinchOn}, off > ${config.hand.pinchOff})`,
-      `pen       ${penDown ? "DOWN" : "up"}`,
+      `hand      ${handTracker ? (performance.now() - handSeenAt < 300 ? "seen" : "—") : "off"}  ${
+        lastPinch
+          ? `pinch 3D ${lastPinch.pinchRatio.toFixed(2)} (< ${config.hand.pinchOn}) 2D ${lastPinch.pinchRatio2D.toFixed(2)} (< ${config.hand.pinchOn2D}) ${lastPinch.closed ? "CLOSED" : "open"}`
+          : "pinch —"
+      }`,
+      `pen       ${penDown ? (waitingForOpen ? "DOWN (open fingers to draw)" : "DOWN") : "up"}`,
     ].join("\n");
   };
 

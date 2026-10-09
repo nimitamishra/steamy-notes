@@ -75,10 +75,10 @@ export interface TargetFormat {
   lowPrecision: boolean;
 }
 
-/** Prefers a half-float single-channel target; falls back to RGBA8. */
+/** Prefers a half-float two-channel target (visible + untouched fog); falls back to RGBA8. */
 export function pickTargetFormat(gl: WebGL2RenderingContext): TargetFormat {
   if (gl.getExtension("EXT_color_buffer_float") || gl.getExtension("EXT_color_buffer_half_float")) {
-    return { internalFormat: gl.R16F, format: gl.RED, type: gl.HALF_FLOAT, lowPrecision: false };
+    return { internalFormat: gl.RG16F, format: gl.RG, type: gl.HALF_FLOAT, lowPrecision: false };
   }
   return { internalFormat: gl.RGBA8, format: gl.RGBA, type: gl.UNSIGNED_BYTE, lowPrecision: true };
 }

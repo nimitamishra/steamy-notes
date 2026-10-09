@@ -1,23 +1,18 @@
-export type FogStyle = "plain" | "droplets";
+export type BrushSize = "s" | "m" | "l";
 
 export interface Settings {
-  fogStyle: FogStyle;
+  brushSize: BrushSize;
 }
 
 const KEY = "steamy-notes:settings";
-const DEFAULTS: Settings = { fogStyle: "droplets" };
 
 export function loadSettings(): Settings {
   try {
-    const raw = localStorage.getItem(KEY);
-    if (!raw) return { ...DEFAULTS };
-    const parsed = JSON.parse(raw) as Partial<Settings>;
-    return {
-      fogStyle: parsed.fogStyle === "plain" ? "plain" : "droplets",
-    };
+    const parsed = JSON.parse(localStorage.getItem(KEY) ?? "{}") as Partial<Settings>;
+    return { brushSize: parsed.brushSize === "s" || parsed.brushSize === "l" ? parsed.brushSize : "m" };
   } catch {
     // Storage can throw in sandboxed / third-party iframes.
-    return { ...DEFAULTS };
+    return { brushSize: "m" };
   }
 }
 

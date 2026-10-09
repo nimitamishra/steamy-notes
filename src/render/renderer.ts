@@ -17,7 +17,6 @@ import copySrc from "./shaders/copy.frag.glsl?raw";
 import simSrc from "./shaders/fogSim.frag.glsl?raw";
 
 const MAX_STAMPS = 64;
-const MAX_DRIPS = 16;
 
 const withCommon = (src: string) => src.replace('#include "common"', commonSrc);
 
@@ -30,9 +29,7 @@ export interface FrameInput {
   blowCenter: { x: number; y: number };
   humidity: number;
   stamps: Stamp[];
-  drips: Float32Array;
   fit: CoverFit;
-  droplets: boolean;
 }
 
 /** Owns the WebGL context: fog simulation (ping-pong) + final composite. */
@@ -97,7 +94,7 @@ export class Renderer {
     this.targets = next;
   }
 
-  /** Sets the whole fog field to a density (0 = clear, 1 = fully fogged). */
+  /** Sets the whole fog field (visible and untouched) to a density (0 = clear, 1 = fully fogged). */
   fill(density: number): void {
     const gl = this.gl;
     for (const t of this.targets ?? []) {
@@ -173,11 +170,7 @@ export class Renderer {
     gl.uniform2f(p.uniform("u_fogTexel"), 1 / fog.width, 1 / fog.height);
     gl.uniform2f(p.uniform("u_res"), this.canvas.width, this.canvas.height);
     gl.uniform1f(p.uniform("u_aspect"), this.aspect);
-    gl.uniform1f(p.uniform("u_droplets"), input.droplets ? 1 : 0);
     gl.uniform1f(p.uniform("u_hasVideo"), this.hasVideo ? 1 : 0);
-    const dripCount = Math.min(MAX_DRIPS, input.drips.length / 4);
-    gl.uniform1i(p.uniform("u_dripCount"), dripCount);
-    if (dripCount > 0) gl.uniform4fv(p.uniform("u_drips"), input.drips.subarray(0, dripCount * 4));
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   }
 

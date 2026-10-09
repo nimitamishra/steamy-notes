@@ -1,7 +1,7 @@
 import { config } from "./config";
 import type { BrushSample } from "./input/gestures";
 
-/** One soft circle applied to the fog. amount < 0 wipes (strength), amount > 0 refogs (to that density). */
+/** One soft circle applied to the fog. amount < 0 wipes (strength); amount > 0 restores fog to the surrounding level (strength). */
 export interface Stamp {
   x: number;
   y: number;
@@ -18,8 +18,9 @@ interface Stroke {
 
 /**
  * Records strokes, turns them into evenly spaced stamps, and keeps history for Undo.
- * Points are held back for `delayMs` before they're committed, so the last moment of a stroke
- * (e.g. fingers closing for the "stop" pinch) can be discarded.
+ * Points wait `delayMs` before they're committed, and the caller can hold them back entirely
+ * (e.g. while the thumb is closing in for a "stop" pinch). Ending with discard drops everything
+ * still waiting, so that motion never leaves a mark.
  */
 export class StrokeBook {
   private history: Stroke[] = [];
@@ -43,17 +44,20 @@ export class StrokeBook {
     this.delayMs = delayMs;
   }
 
-  /** Adds a sample; returns stamps for any points that are now old enough to commit. */
-  add(s: BrushSample, t: number): Stamp[] {
+  /**
+   * Adds a sample; returns stamps for any points that are now old enough to commit.
+   * @param hold keep everything pending (nothing is drawn) until a later call without hold
+   */
+  add(s: BrushSample, t: number, hold = false): Stamp[] {
     if (!this.current) return [];
     this.pending.push({ s, t });
-    return this.commitUntil(t - this.delayMs);
+    return hold ? [] : this.commitUntil(t - this.delayMs);
   }
 
-  /** Ends the stroke. If discardPending, the last `delayMs` of motion is dropped. */
-  end(t: number, discardPending: boolean): Stamp[] {
+  /** Ends the stroke. If discardPending, everything not yet committed is dropped. */
+  end(discardPending: boolean): Stamp[] {
     if (!this.current) return [];
-    const stamps = discardPending ? this.commitUntil(t - this.delayMs) : this.commitUntil(Infinity);
+    const stamps = discardPending ? [] : this.commitUntil(Infinity);
     if (this.current.points.length > 0) this.history.push(this.current);
     this.current = null;
     this.pending = [];
@@ -65,8 +69,8 @@ export class StrokeBook {
     const last = this.history.pop();
     if (!last) return [];
     const inverse: StrokeKind = last.kind === "wipe" ? "fog" : "wipe";
-    // Slightly wider than the original so the soft edges are covered too.
-    const widened = last.points.map((p) => ({ ...p, r: p.r * 1.25 }));
+    // Wider than the original so its soft edges are fully restored (no ghost outline).
+    const widened = last.points.map((p) => ({ ...p, r: p.r * 1.6 }));
     return this.stampsFor(widened, inverse);
   }
 
@@ -126,7 +130,7 @@ export class StrokeBook {
       x: s.x,
       y: s.y,
       r: s.r,
-      amount: kind === "wipe" ? -config.fog.wipeStrength : config.fog.refogLevel,
+      amount: kind === "wipe" ? -config.fog.wipeStrength : config.fog.restoreStrength,
     };
   }
 

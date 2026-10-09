@@ -29,23 +29,32 @@ pen down ──(pinch again)──▶ pen up
   - no face → mic only. No mic → a clearly held pucker fogs on its own, more gently.
   - Breath lands **in front of the mouth** (mouth position drives the fog's blow center).
   - Tune live with `?debug` (shows the reason each frame did/didn't count).
-- **Fog is a living surface** (behave like real life):
-  - With no blowing, fog slowly evaporates over time.
-  - Wiped areas slowly, **partially** re-fog (never fully back to original density on their own).
+- **Fog is a living surface, but a patient one** (the user found fast fading annoying):
+  - With no blowing, fog lasts minutes (humidity decays ~0.2%/s), not seconds.
+  - Wiped areas very slowly, **partially** re-fog (~80s time constant; never fully back on their own), so writing stays readable.
   - Blowing again thickens fog everywhere, including over writing (partially obscuring it).
-- **Writing with the hand:** nothing is drawn (and no cursor shown) until the user **pinches**. Then the **index fingertip only** is the pen, at a fixed width. **Pinch again** to stop. The last `commitDelayMs` of a stroke is discarded on stop so the closing-pinch motion doesn't leave a mark. Before the first pinch, the hint confirms the hand was found.
-- **Drips** (fog style "droplets"): condensation beads form where fog is dense; occasionally one grows heavy and **runs down**, wobbling slightly, clearing a streak behind it that slowly re-fogs. Style "plain" disables drips.
+- **Writing with the hand:** nothing is drawn (and no cursor shown) until the user **pinches**. Then the **index fingertip only** is the pen, at the chosen brush size. **Pinch again** to stop. Before the first pinch, the hint confirms the hand was found.
+- **Pinch: false positives are worse than a slightly stiffer pinch.** A frame counts as "closed" only if all hold:
+  - 3D: thumb↔index ÷ wrist↔middle-knuckle on MediaPipe **world landmarks** (meters) < `pinchOn`, so hand angle and distance don't matter;
+  - 2D second opinion on the camera image < `pinchOn2D`;
+  - not a curled hand (middle tip must be clearly farther from the thumb than the index tip, `curledMargin`).
+  A pinch then **starts** only if: the fingers were clearly open (> `pinchOff`) since the last pinch (*armed*: an already-closed hand never counts), closed for `pinchHoldMs` straight, hand visible ≥ `handSettleMs`, and ≥ `pinchCooldownMs` since the last one. Hand-detection confidence stays at 0.7 so faces/background never become phantom hands.
+- **No pinch marks, no lag:** strokes draw almost immediately (`commitDelayMs` ≈ 60ms). While the thumb is closing in (`ratio < approachRatio`), new points are *held*. If the pinch completes, they're dropped; if not, they're drawn. After the start-pinch, the pen waits for the fingers to open before drawing.
+- History: (1) image-space pinch → false starts from sideways hands; (2) stricter image-space 3D + 250ms delay → missed pinches and laggy writing; (3) world landmarks + low confidence → phantom pinches; (4) current: 2D+3D agreement, arming, curled-hand reject, confidence 0.7. Tune with `?debug` (shows both ratios and CLOSED/open) before changing thresholds.
+- **No droplets or drips.** They were built and removed. They looked fake and the streaks were distracting. Plain fog only.
 
 ### Toolbar actions
 
 | Action | Behavior |
 |---|---|
 | **Capture** | Save a PNG of exactly what the user sees (mirrored video + fog + writing). Web Share sheet on mobile when available, download otherwise. Small shutter flash. |
-| **Undo** | Re-fog the most recent stroke's path (soft). Repeatable through stroke history. |
-| **Eraser** (mode toggle) | While active, the brush *adds* fog instead of wiping — "rubbing out" writing. |
+| **Undo** | Restores the fog along the most recent stroke (widened 1.6× so no ghost outline). Repeatable through stroke history. |
+| **Eraser** (mode toggle) | While active, the brush puts fog back instead of wiping — "rubbing out" writing. |
+
+Undo and eraser **never use a fixed fog level**: they restore to the "untouched" density (see fog simulation), so restored fog always matches the fog around it, however thick or thin it currently is.
 | **Refog** | Re-fog the whole mirror to full density instantly (fresh surface, no blowing needed). |
-| **Restart** | Back to a clear mirror; history cleared; blow to start again. |
-| **Fog style** | `plain` ↔ `droplets`. |
+| **Restart** ("clear") | Back to a clear mirror; history cleared; blow to start again. |
+| **Brush size** | Three dots: thin / medium / thick (`config.brush.sizes`), for finger and mouse/touch alike. Persisted in localStorage. |
 
 ### Fallbacks (always available; also used for development)
 
@@ -75,7 +84,7 @@ src/
   main.ts                 boot, input wiring, main loop (also the dev-only window.__fog hook)
   config.ts               ALL tunables (thresholds, rates, sizes) live here
   coords.ts               pure: cover-fit + camera→mirror-screen mapping (the only horizontal flip)
-  state.ts                settings (persisted to localStorage) + first-run hint steps
+  state.ts                settings (brush size, persisted to localStorage) + first-run hint steps
   strokes.ts              pure: stroke history, stamp spacing, commit delay, Undo
   capture.ts              canvas → PNG → share sheet / download
   media/
@@ -84,13 +93,12 @@ src/
   input/
     blowDetector.ts       pure: spectrum frame → { blowing, strength }
     vision.ts             MediaPipe HandTracker + FaceTracker (pucker + mouth position); decoupled from render
-    gestures.ts           pure: landmarks → pinch ratio (hysteresis) + index fingertip
+    gestures.ts           pure: world landmarks → pinch ratio; PinchTracker (hold/settle/cooldown); index fingertip
     smoothing.ts          One-Euro filter for fingertip positions
     pointerFallback.ts    mouse/touch drawing + Space-key huff
   render/
     gl.ts                 shader/program/target helpers, fullscreen triangle
     renderer.ts           fog sim ping-pong + composite; resize resamples the fog
-    drips.ts              CPU drip particles → wipe stamps + heads for the shader
     shaders/              common.glsl (noise), fogSim.frag, composite.frag, copy.frag
   ui/
     toolbar.ts, cursor.ts, bubbles.ts (hint + toast), styles.css
@@ -101,18 +109,21 @@ examples/nextjs/SteamyNotes.tsx click-to-load iframe wrapper for Next.js
 
 ### Fog simulation (the heart of it)
 
-Fog **density** `D ∈ [0,1]` is a single-channel texture (≈ ¼ screen resolution), updated each frame on the GPU by ping-ponging two framebuffers:
+Fog lives in a two-channel texture (≈ ¼ screen resolution), updated each frame on the GPU by ping-ponging two framebuffers:
+- **R = visible density `D`** (what you see; wipes clear it).
+- **G = untouched density `U`**: identical physics but strokes never touch it. It answers "what would the fog be here if nobody had written on it?". Eraser/undo stamps move `D` toward `max(D, U)`.
+
+Both channels follow:
 
 ```
 D' = D
    + blowStrength * blowRate * dt * falloff(uv)        // blowing (soft radial, bottom-center biased)
    - evaporationRate * dt * D                          // fades when idle
    + regrowRate * dt * max(0, regrowCap - D)           // wiped areas partially refog
-   then stamp strokes: wipe → D *= (1 - brushMask); eraser/undo → D += brushMask * k
-   then stamp drip trails: D *= (1 - dripMask)
+   then stamp strokes (R only): wipe → D *= (1 - strength·mask); eraser/undo → D = mix(D, max(D, U), strength·mask)
 ```
 
-The **composite shader** samples the mirrored video twice — sharp, and blurred (mip/downsampled) — and mixes by `D`, adding a cool white haze and subtle low-frequency noise so fog isn't uniform. In `droplets` style, bead normals (procedural) refract the sharp video slightly and add specular highlights.
+The **composite shader** samples the mirrored video twice — sharp, and blurred (mip/downsampled) — and mixes by `D`, adding a cool white haze and subtle low-frequency noise so fog isn't uniform.
 
 **Strokes** are recorded as point lists `{x, y, radius}[]` in normalized mirror-space so Undo can replay them as refog stamps and so resizes don't break them.
 
@@ -142,12 +153,12 @@ Quiet, editorial, a little bathroom-tile. The fog is the star; chrome stays out 
 - **Avoid the "AI app" look:** no pastel gradients, glassmorphism, emoji in UI copy, sparkles, bouncy squish animations, or "let's go ✨" voice.
 - **Type:** Instrument Serif italic for the name only; DM Mono 12px for everything else.
 - **Color:** ink `#1c1d1f` on paper `#f3f2ee`, hairline borders `rgba(28,29,31,.14)`, small radii (5–8px). Active = ink fill. No accent color.
-- **Toolbar:** text-only mono buttons ("save photo · undo · eraser · refog · clear | drops on").
+- **Toolbar:** text-only mono buttons ("save photo · undo · eraser · refog · clear"), then three size dots.
 - **Copy:** plain, lowercase, short, no emoji ("blow on the mirror", "pinch to start writing", "pinch again to stop").
 - **Start screen:** big serif name, three numbered steps, one ink button.
 - **Fingertip:** small white dot shown only while hand-writing (hollow ring when erasing).
 - First-run hints advance as the user succeeds (blow → pinch → write → stop).
-- Respect `prefers-reduced-motion` (no drips, no transitions). Touch targets ≥ 44px on coarse pointers.
+- Respect `prefers-reduced-motion` (no transitions). Touch targets ≥ 44px on coarse pointers.
 
 ## Conventions
 
@@ -188,7 +199,8 @@ To test on a phone: `npm run dev:host` and open the HTTPS URL on the same networ
   - [ ] Talking normally does not fog; a 0.5s blow visibly fogs
   - [ ] Pinch starts writing, pinch again stops, no stray mark from the stop-pinch; text reads correctly (not mirrored) to the user
   - [ ] Undo, Eraser, Refog, Restart behave per the table above
-  - [ ] Drips run and leave streaks; `plain` has none
+  - [ ] Waving a hand around without pinching never starts writing
+  - [ ] Fog is still clearly there a minute after blowing
   - [ ] Capture matches the screen
   - [ ] Works in Chrome, Safari (macOS + iOS), Firefox; inside an iframe with `allow`
   - [ ] Tab hidden → camera/loop paused

@@ -1,6 +1,6 @@
 import { FaceLandmarker, FilesetResolver, HandLandmarker } from "@mediapipe/tasks-vision";
 import { config } from "../config";
-import type { Landmark } from "./gestures";
+import type { HandFrame } from "./gestures";
 
 /** The first detections include GPU/graph warm-up and are much slower than steady state. */
 const WARMUP_FRAMES = 15;
@@ -56,17 +56,23 @@ export class HandTracker extends Timed {
         baseOptions: { modelAssetPath: base() + "hand_landmarker.task", delegate },
         runningMode: "VIDEO",
         numHands: 1,
-        minHandDetectionConfidence: 0.6,
-        minHandPresenceConfidence: 0.6,
+        // High enough that faces/background never become phantom (and phantom-pinching) hands.
+        minHandDetectionConfidence: 0.7,
+        minHandPresenceConfidence: 0.7,
         minTrackingConfidence: 0.5,
       }),
     );
     return new HandTracker(lm);
   }
 
-  /** Returns landmarks, null if no hand, or undefined if the frame hasn't changed. */
-  detect(video: HTMLVideoElement, nowMs: number): Landmark[] | null | undefined {
-    return this.run(video, () => this.landmarker.detectForVideo(video, nowMs).landmarks[0] ?? null);
+  /** Returns the hand, null if none, or undefined if the frame hasn't changed. */
+  detect(video: HTMLVideoElement, nowMs: number): HandFrame | null | undefined {
+    return this.run(video, () => {
+      const res = this.landmarker.detectForVideo(video, nowMs);
+      const image = res.landmarks[0];
+      const world = res.worldLandmarks[0];
+      return image && world ? { image, world } : null;
+    });
   }
 
   close(): void {
@@ -78,7 +84,7 @@ export interface FaceReading {
   /** 0..1 — how much the face looks like it's blowing (pursed / rounded lips, puffed cheeks). */
   pucker: number;
   /** Mouth center in camera space (not mirrored). */
-  mouth: Landmark;
+  mouth: { x: number; y: number };
 }
 
 // Inner upper / lower lip landmarks in the 478-point face mesh.

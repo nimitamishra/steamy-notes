@@ -189,10 +189,6 @@ body.embed .title {
   outline-offset: 1px;
 }
 
-#toolbar [data-label] {
-  color: var(--ink-soft);
-}
-
 .divider {
   width: 1px;
   align-self: stretch;
@@ -200,9 +196,50 @@ body.embed .title {
   background: var(--line);
 }
 
+/* Brush size: three dots, sized like the strokes they make. */
+.sizes {
+  display: flex;
+}
+
+#toolbar .sizes button {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  padding: 0;
+}
+
+.sizes i {
+  display: block;
+  border-radius: 50%;
+  background: var(--ink-soft);
+}
+
+.sizes [data-size="s"] i {
+  width: 5px;
+  height: 5px;
+}
+
+.sizes [data-size="m"] i {
+  width: 9px;
+  height: 9px;
+}
+
+.sizes [data-size="l"] i {
+  width: 14px;
+  height: 14px;
+}
+
+.sizes [aria-checked="true"] i {
+  background: var(--ink);
+  box-shadow: 0 0 0 3px var(--paper), 0 0 0 4px var(--ink);
+}
+
 @media (pointer: coarse) {
   #toolbar button {
     min-height: 44px;
+  }
+  #toolbar .sizes button {
+    width: 40px;
   }
 }
 

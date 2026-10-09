@@ -37,29 +37,29 @@ export const config = {
     blowRate: 1.6,
     /** Humidity (0..1) gained per second at full blow strength. */
     humidityGain: 0.9,
-    /** Humidity lost per second when not blowing — controls how long the fog lasts overall. */
-    humidityDecay: 0.012,
+    /** Humidity lost per second when not blowing — controls how long the fog lasts overall (~8 min). */
+    humidityDecay: 0.002,
     /** Wiped areas regrow toward humidity * regrowCap. Keep < 1 so writing stays readable. */
     regrowCap: 0.6,
-    /** Per-second rate of regrowth toward the target (exponential approach). */
-    regrowRate: 0.035,
+    /** Per-second rate of regrowth toward the target (exponential approach; ~80s time constant). */
+    regrowRate: 0.012,
     /** Per-second linear evaporation of density above the target. */
-    evapRate: 0.012,
-    /** Density used by Undo / Eraser stamps. */
+    evapRate: 0.003,
+    /** Density the Refog button sets the whole mirror to. (Eraser/undo instead restore the surrounding level.) */
     refogLevel: 0.92,
+    /** How strongly an eraser/undo stamp restores fog to the surrounding level (0..1) per application. */
+    restoreStrength: 1,
     /** How strongly a wipe stamp removes fog (0..1) per stamp application. */
     wipeStrength: 0.9,
   },
 
   brush: {
-    /** Index-fingertip wipe radius, in screen units. */
-    fingerRadius: 0.02,
-    /** Radius for mouse / touch drawing. */
-    pointerRadius: 0.022,
+    /** Wipe radius per size setting, in screen units (finger and mouse/touch alike). */
+    sizes: { s: 0.011, m: 0.019, l: 0.032 },
     /** Stamp spacing along a stroke, as a fraction of radius. */
     spacing: 0.3,
-    /** Points younger than this (ms) are held back so the pinch-to-stop motion doesn't draw. */
-    commitDelayMs: 180,
+    /** Small lag (ms) before hand points draw; most stop-pinch protection comes from hand.approachRatio. */
+    commitDelayMs: 60,
   },
 
   face: {
@@ -70,30 +70,35 @@ export const config = {
   },
 
   hand: {
-    /** Pinch starts below this (thumb-index distance / hand size). */
-    pinchOn: 0.28,
-    /** Pinch ends above this — hysteresis gap prevents flicker. */
-    pinchOff: 0.42,
-    /** Run detection at most this often (ms). */
-    detectIntervalMs: 33,
-    /** Hand missing longer than this (ms) breaks the current stroke. */
-    lostMs: 250,
+    /**
+     * Pinch ratio = thumb-tip↔index-tip distance / wrist↔middle-knuckle distance, measured on
+     * MediaPipe's real-world 3D landmarks (meters), so it doesn't depend on hand angle or distance
+     * from the camera. Touching ≈ 0.1–0.25, relaxed open hand ≈ 0.6+.
+     */
+    pinchOn: 0.3,
+    /** Pinch ends above this — hysteresis gap prevents flicker. Also "clearly open" for arming. */
+    pinchOff: 0.45,
+    /** Second opinion on the camera image (thumb↔index / wrist↔middle-knuckle, 2D). Must also be below this. */
+    pinchOn2D: 0.35,
+    /** Curled-hand reject: not a pinch if thumb↔middle-tip < thumb↔index-tip × this. */
+    curledMargin: 1.6,
+    /** While writing, below this the thumb is closing in: hold the pen (don't draw) in case it's a stop-pinch. */
+    approachRatio: 0.5,
+    /** Fingers must stay pinched this long (ms) before it counts — rejects passing-through poses. */
+    pinchHoldMs: 90,
+    /** Minimum time (ms) between two pinches, so one pinch can't toggle twice. */
+    pinchCooldownMs: 400,
+    /** Ignore pinches until a newly found hand has been visible this long (ms). */
+    handSettleMs: 250,
+    /** Run detection at most this often (ms); 0 = every new camera frame. */
+    detectIntervalMs: 0,
+    /** Hand missing longer than this (ms) breaks the current stroke (brief dropouts don't). */
+    lostMs: 400,
     /** If average detection takes longer than this (ms), turn hand tracking off. */
     tooSlowMs: 70,
     /** One-Euro filter params for fingertip smoothing (positions are 0..1 screen coords). */
-    minCutoff: 1.4,
+    minCutoff: 2.5,
     beta: 6,
   },
 
-  drips: {
-    /** Expected drips spawned per second at full humidity. */
-    spawnPerSecond: 0.35,
-    /** Humidity below which no drips form. */
-    minHumidity: 0.45,
-    maxDrips: 12,
-    /** Head radius range, screen units. */
-    radius: [0.006, 0.011] as [number, number],
-    /** Speed range while sliding, screen units per second. */
-    speed: [0.05, 0.16] as [number, number],
-  },
 } as const;

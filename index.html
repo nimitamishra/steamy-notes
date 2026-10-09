@@ -29,7 +29,11 @@
         <button type="button" data-action="refog" title="Fog up the whole mirror">refog</button>
         <button type="button" data-action="restart" title="Clear the mirror">clear</button>
         <i class="divider" aria-hidden="true"></i>
-        <button type="button" data-action="style" title="Condensation drops">drops <span data-label>on</span></button>
+        <div class="sizes" role="radiogroup" aria-label="Brush size">
+          <button type="button" role="radio" data-size="s" aria-label="Thin brush" title="Thin"><i></i></button>
+          <button type="button" role="radio" data-size="m" aria-label="Medium brush" title="Medium"><i></i></button>
+          <button type="button" role="radio" data-size="l" aria-label="Thick brush" title="Thick"><i></i></button>
+        </div>
       </nav>
 
       <section id="start" class="overlay">

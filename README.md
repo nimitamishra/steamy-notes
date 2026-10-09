@@ -2,10 +2,9 @@
 
 Your webcam becomes a bathroom mirror. Blow on it to fog it up, pinch, and write a note in the steam with your finger.
 
-- **Blowing** is detected with the mic and confirmed by your face (pursed lips), so talking doesn't fog the mirror. The fog forms in front of your mouth and slowly fades, like real condensation.
+- **Blowing** is detected with the mic and confirmed by your face (pursed lips), so talking doesn't fog the mirror. The fog forms in front of your mouth and hangs around for minutes.
 - **Writing** uses [MediaPipe](https://ai.google.dev/edge/mediapipe/solutions/vision/hand_landmarker) hand tracking. Pinch to start writing with your index finger, and pinch again to stop.
-- **Drops**: condensation beads, plus drips that run down and leave clear streaks.
-- Save a photo, undo, eraser, refog, clear.
+- Save a photo, undo, eraser, refog, clear, and three brush sizes.
 - Works without hand tracking or a mic, using mouse, touch, or the space bar instead.
 - Runs entirely in your browser. Nothing is uploaded.
 

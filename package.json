@@ -1,0 +1,26 @@
+{
+  "name": "steamy-notes",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "postinstall": "node scripts/fetch-mediapipe.mjs",
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "dev:host": "HTTPS=1 vite --host"
+  },
+  "dependencies": {
+    "@fontsource/dm-mono": "^5.3.0",
+    "@fontsource/instrument-serif": "^5.3.0",
+    "@mediapipe/tasks-vision": "^1.1.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-basic-ssl": "^2.3.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.4",
+    "vitest": "^5.0.3"
+  }
+}

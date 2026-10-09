@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="description" content="Blow on your webcam mirror to fog it up, then write in the fog with your finger." />
+    <meta name="theme-color" content="#e7e8e6" />
+    <title>steamy notes</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect x='5' y='3' width='22' height='26' rx='11' fill='%23d9dcdc' stroke='%231c1d1f' stroke-width='2'/><path d='M11 18c2-3 4 1 6-2s3 0 4-1' fill='none' stroke='%231c1d1f' stroke-width='2' stroke-linecap='round'/></svg>" />
+  </head>
+  <body>
+    <main id="app">
+      <canvas id="mirror" aria-label="Fogged mirror. Draw to wipe the fog."></canvas>
+      <video id="video" playsinline muted></video>
+      <div id="cursor" aria-hidden="true"></div>
+      <div id="flash" aria-hidden="true"></div>
+
+      <header class="title">steamy notes</header>
+      <div id="hint" class="chip" role="status" aria-live="polite"></div>
+      <div id="toast" class="chip toast" role="status" aria-live="polite"></div>
+      <pre id="debug" hidden></pre>
+
+      <button id="huff" class="chip huff" type="button" hidden>hold to blow</button>
+
+      <nav id="toolbar" aria-label="Mirror tools" hidden>
+        <button type="button" data-action="capture" title="Save a picture">save photo</button>
+        <button type="button" data-action="undo" title="Fog over your last stroke">undo</button>
+        <button type="button" data-action="eraser" aria-pressed="false" title="Your finger adds fog back">eraser</button>
+        <button type="button" data-action="refog" title="Fog up the whole mirror">refog</button>
+        <button type="button" data-action="restart" title="Clear the mirror">clear</button>
+        <i class="divider" aria-hidden="true"></i>
+        <button type="button" data-action="style" title="Condensation drops">drops <span data-label>on</span></button>
+      </nav>
+
+      <section id="start" class="overlay">
+        <div class="intro">
+          <h1>steamy notes</h1>
+          <ol>
+            <li>blow on the mirror</li>
+            <li>pinch to start writing</li>
+            <li>pinch again to stop</li>
+          </ol>
+          <button id="begin" class="cta" type="button">start</button>
+          <p class="fine">needs your camera and mic. nothing leaves this device.</p>
+        </div>
+      </section>
+
+      <section id="unsupported" class="overlay" hidden>
+        <div class="intro">
+          <h1>no steam here</h1>
+          <p class="fine">this needs WebGL2. try a recent Chrome, Safari, Firefox, or Edge.</p>
+        </div>
+      </section>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
